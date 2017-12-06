@@ -1,8 +1,9 @@
-pragma solidity ^0.4.11;
+pragma solidity ^0.4.18;
 
 import "./installed/SafeMath.sol";
 import "./installed/RedBlackTree.sol";
 import "./installed/token/ERC20.sol";
+
 
 contract Exchange {
     using SafeMath for uint;
@@ -37,13 +38,13 @@ contract Exchange {
 
     mapping (address => mapping (address => Balance)) private balances;
 
-    uint64 lastOrderId;
-    mapping(uint64 => Order) orders;
-    mapping(address => Pair) pairs;
+    uint64 public lastOrderId;
+    mapping(uint64 => Order) public orders;
+    mapping(address => Pair) internal pairs;
 
     event Deposit(address indexed token, address indexed owner, uint amount);
     event Withdraw(address indexed token, address indexed owner, uint amount);
-    event NewOrder(address indexed token, address indexed owner, uint64 id, bool sell, uint price, uint amount, uint64 timestamp);
+    event NewOrder(address indexed token, address indexed owner, uint64 id, bool isSell, uint price, uint amount, uint64 timestamp);
     event NewAsk(address indexed token, uint price);
     event NewBid(address indexed token, uint price);
     event NewTrade(address indexed token, uint64 indexed bidId, uint64 indexed askId, bool side, uint amount, uint price, uint timestamp);
@@ -55,30 +56,29 @@ contract Exchange {
 
     function Exchange() public {
     }
-    
-    function deposit() payable {
+
+    function deposit() public payable {
         balances[0][msg.sender].available = balances[0][msg.sender].available.add(msg.value);
         Deposit(0, msg.sender, msg.value);
     }
 
-    function withdraw(uint amount) {
+    function withdraw(uint amount) public {
         balances[0][msg.sender].available = balances[0][msg.sender].available.sub(amount);
         require(msg.sender.call.value(amount)());
         Withdraw(0, msg.sender, amount);
     }
 
-    function depositToken(ERC20 token, uint amount) {
+    function depositToken(ERC20 token, uint amount) public {
         token.transferFrom(msg.sender, this, amount);
         balances[token][msg.sender].available = balances[token][msg.sender].available.add(amount);
         Deposit(token, msg.sender, amount);
     }
 
-    function withdrawToken(ERC20 token, uint amount) {
+    function withdrawToken(ERC20 token, uint amount) public {
         balances[token][msg.sender].available = balances[token][msg.sender].available.sub(amount);
         token.transfer(msg.sender, amount);
         Withdraw(token, msg.sender, amount);
     }
-    
 
     function sell(address token, uint amount, uint price) public returns (uint64) {
         balances[token][msg.sender].available = balances[token][msg.sender].available.sub(amount);
@@ -97,7 +97,7 @@ contract Exchange {
         Pair storage pair = pairs[token];
         matchSell(token, pair, order, id);
 
-        if (order.amount != 0) {            
+        if (order.amount != 0) {
             uint64 currentOrderId;
             uint64 n = pair.pricesTree.find(price);
             if (n != 0 && price >= orders[n].price) {
@@ -105,7 +105,7 @@ contract Exchange {
             } else {
                 currentOrderId = n;
             }
-            
+
             ListItem memory orderItem;
             orderItem.next = currentOrderId;
             uint64 prevOrderId;
@@ -223,7 +223,7 @@ contract Exchange {
                 NewBid(token, order.price);
             }
 
-            orders[id] = order;            
+            orders[id] = order;
             pair.orderbook[id] = orderItem;
             pair.pricesTree.placeAfter(n, id, order.price);
         }
@@ -245,10 +245,10 @@ contract Exchange {
                 order.amount -= matchingOrder.amount;
                 matchingOrder.amount = 0;
             }
-            
+
             balances[0][order.owner].reserved = balances[0][order.owner].reserved.sub(tradeAmount.mul(order.price));
             balances[0][order.owner].available = balances[0][order.owner].available.add(tradeAmount.mul(order.price - matchingOrder.price));
-            balances[token][matchingOrder.owner].reserved = balances[token][matchingOrder.owner].reserved.sub(tradeAmount);                
+            balances[token][matchingOrder.owner].reserved = balances[token][matchingOrder.owner].reserved.sub(tradeAmount);
             balances[0][matchingOrder.owner].available = balances[0][matchingOrder.owner].available.add(tradeAmount.mul(matchingOrder.price));
             balances[token][order.owner].available = balances[token][order.owner].available.add(tradeAmount);
 
@@ -310,14 +310,14 @@ contract Exchange {
         if (pair.firstOrder == id) {
             pair.firstOrder = matchingOrderItem.next;
         }
-        
+
         pair.pricesTree.remove(id);
         delete pair.orderbook[id];
         delete orders[id];
 
         return matchingOrderItem;
     }
-    
+
     function getBalance(address token, address trader) public constant returns (uint available, uint reserved) {
         available = balances[token][trader].available;
         reserved = balances[token][trader].reserved;
@@ -331,10 +331,10 @@ contract Exchange {
         lastOrder = pair.lastOrder;
     }
 
-    function getOrder(address token, uint64 id) public constant returns (uint price, bool sell, uint amount, uint64 next, uint64 prev) {
+    function getOrder(address token, uint64 id) public constant returns (uint price, bool isSell, uint amount, uint64 next, uint64 prev) {
         Order memory order = orders[id];
         price = order.price;
-        sell = order.sell;
+        isSell = order.sell;
         amount = order.amount;
         next = pairs[token].orderbook[id].next;
         prev = pairs[token].orderbook[id].prev;
